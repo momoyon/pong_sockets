@@ -109,6 +109,10 @@ io.on('connection', socket => {
                  console.error(`Room ${data.room_name} doesn't exist!`);
                return;
              }
+             let thisPlayerIsMaster = false;
+             if (room.players.length == 0) {
+                 thisPlayerIsMaster = true;
+             }
              if (doesPlayerExist(socket, room, data.name)) {
                  return;
              }
@@ -118,6 +122,7 @@ io.on('connection', socket => {
              socket.emit('room_joined', {
                  room: room,
                  rooms: rooms,
+                 master: thisPlayerIsMaster,
              })
          } else {
              socket.emit('room_joined', {
@@ -140,9 +145,29 @@ io.on('connection', socket => {
 
     socket.on('is_room_full', (data) => {
         const r = getRoom(data.room.name);
-        socket.emit('is_room_full_response', {
-            is_room_full: r.players.length >= 2,
+        if (r) {
+            socket.emit('is_room_full_response', {
+                is_room_full: r.players.length >= 2,
+            });
+        }
+    });
+
+    socket.on('player_update', (data) => {
+        const room = data.room;
+        socket.to(data.room.name).emit('player_update_response', {
+            y: data.y,
+            score: data.score,
         });
+    });
+
+    socket.on('ball_update', (data) => {
+        console.log(`ball_update from ${socket.id}`);
+        if (data.room) {
+            socket.to(data.room.name).emit('ball_update_response', {
+                ball_y: data.ball_y,
+                ball_x: data.ball_x,
+            });
+        }
     });
 
     socket.on('disconnecting', () => {

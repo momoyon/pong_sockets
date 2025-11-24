@@ -1,3 +1,5 @@
+const width = 800;
+const height = 400;
 let paused = true;
 let p;
 let opp;
@@ -19,6 +21,8 @@ let rooms_list = document.createElement('ul');
 const setup_fs = document.getElementById('setup');
 let isRoomFull = false;
 let roomFullP = document.createElement('p');
+let masterP = document.createElement('p');
+let amMaster = false;
 
 function setCurrentRoom(room) {
     currentRoom = room;
@@ -60,7 +64,7 @@ function updateRoomsList(rooms) {
 }
 
 function setup() {
-    const p5_canvas = createCanvas(800, 400);
+    const p5_canvas = createCanvas(width, height);
     p5_canvas.id('p5_canvas');
 
     p = new Player(width - 50, height / 2);
@@ -74,6 +78,7 @@ function setup() {
     setCurrentRoom(currentRoom);
 
     setup_fs.append(roomFullP);
+    setup_fs.append(masterP);
 
     // Name input
     name_input = document.createElement('input');
@@ -168,11 +173,21 @@ function setup() {
             setCurrentRoom(data.room);
             updateRoomsList(data.rooms);
         }
+
+        if (data.master) {
+            masterP.innerHTML = "I am master";
+            amMaster = true;
+        } else {
+            masterP.innerHTML = "I am slave";
+        }
+            
     })
 
     socket.on('rooms_showed', (data) => {
         updateRoomsList(data.rooms);
     });
+
+
 }
 
 function draw() {
@@ -189,24 +204,38 @@ function draw() {
         });
     }
 
-    //console.log(`sending data: ${data.y}`);
-    socket.emit('data_ts', {
-        y: p.pos.y,
-        score: p.score
-    });
+    if (isRoomFull) {
+        socket.emit('player_update', {
+            y: p.pos.y,
+            score: p.score,
+            room: currentRoom,
+        });
+        socket.on('player_update_response', (data) => {
+            opp.pos.y = data.y;
+            opp.score = data.score;
+            // console.log(`Opp update: ${opp.pos.y}`);
+        });
 
-    socket.on('data_tc', data => {
-        opp.pos.y = data.y;
-        opp.score = data.score;
-        if (!other_id) {
-            other_id = data.id;
+
+        if (amMaster) {
+            socket.emit('ball_update', {
+                ball_x: ball.x,
+                ball_y: ball.y,
+                room: currentRoom,
+            });
         }
-    })
+        socket.on('ball_update_response', (data) => {
+            ball.y = data.ball_y;
+            const diff_x = (width * 0.5) - data.ball_x;
+            ball.x = (diff_x) * -1;
+            console.log('ball_update_response');
+        });
+    }
 
     background(0);
 
     ball.show();
-    if (!paused) {
+    if (amMaster) {
         ball.update();
     }
 
