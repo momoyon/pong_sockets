@@ -1,3 +1,4 @@
+let paused = true;
 let p;
 let opp;
 let ball;
@@ -6,17 +7,18 @@ let start = false;
 let other_id;
 let name_input;
 let room_input;
-let show_users_btn;
 let create_room_btn;
 let join_room_btn;
 let show_room_btn;
 let debug = true;
 let isAdmin = false;
 let canStart = false;
-let currentRoom;
+let currentRoom = undefined;
 let currentRoomLabel = document.createElement('p');
 let rooms_list = document.createElement('ul');
 const setup_fs = document.getElementById('setup');
+let isRoomFull = false;
+let roomFullP = document.createElement('p');
 
 function setCurrentRoom(room) {
     currentRoom = room;
@@ -40,9 +42,19 @@ function addBreak(times) {
 function updateRoomsList(rooms) {
     rooms_list.innerHTML = "";
     for (let i = 0; i < rooms.length; ++i) {
-        const li = document.createElement('li');
+        let li = document.createElement('li');
         const r = rooms[i];
+        console.log(r);
         li.innerHTML = `${r.name}`;
+
+        const ul = document.createElement('ul');
+        li.append(ul);
+        for (const p of r.players) {
+            let _li = document.createElement('li');
+            _li.innerHTML = `${p.name}`;
+            ul.append(_li);
+        }
+
         rooms_list.append(li);
     }
 }
@@ -60,6 +72,8 @@ function setup() {
 
     setup_fs.append(currentRoomLabel);
     setCurrentRoom(currentRoom);
+
+    setup_fs.append(roomFullP);
 
     // Name input
     name_input = document.createElement('input');
@@ -92,15 +106,7 @@ function setup() {
         show_room_btn.innerHTML = 'Show rooms';
         setup_fs.append(show_room_btn);
         show_room_btn.onclick = () =>{
-            socket.emit('show_rooms', {});
-        }
-
-        show_users_btn = document.createElement('button');
-        show_users_btn.innerHTML = 'Show Users';
-        setup_fs.append(show_users_btn);
-
-        show_users_btn.onclick = () => {
-            showError("Not Implemented Yet!");
+            socket.emit('rooms_show', {});
         }
     }
 
@@ -109,31 +115,79 @@ function setup() {
     setup_fs.append(rooms_list);
 
     create_room_btn.onclick = () => {
-        socket.emit('create_room', {
+        if (name_input.value === '') {
+            showError("Please provide a name!");
+            return;
+        }
+        if (room_input.value === '') {
+            showError("Please provide a room name!");
+            return;
+        }
+        socket.emit('room_create', {
             room_name: room_input.value,
             name: name_input.value
         })
     }
 
     join_room_btn.onclick = () => {
-        socket.emit('join_room', {
+        if (name_input.value === '') {
+            showError("Please provide a name!");
+            return;
+        }
+        if (room_input.value === '') {
+            showError("Please provide a room name!");
+            return;
+        }
+        socket.emit('room_join', {
             room_name: room_input.value,
             name: name_input.value
         })
     }
 
-    // recieve from the server if this is the admin
     socket.on('room_created', data => {
-        setCurrentRoom(data.room);
-        updateRoomsList(data.rooms);
+        console.log("--------------------------------------------------");
+        console.log(data);
+        console.log("--------------------------------------------------");
+        if (data.room_exists) {
+            showError(`Room ${data.room_name} already exists!`);
+        } else {
+            setCurrentRoom(data.room);
+            updateRoomsList(data.rooms);
+        }
     })
 
-    socket.on('room_show', (data) => {
+    socket.on('rooms_update', data => {
+        updateRoomsList(data.rooms);
+    });
+
+    socket.on('room_joined', data => {
+        console.log(data);
+        if (data.room === null) {
+            showError(`Room ${data.room_name} doesn't exist!`);
+        } else {
+            setCurrentRoom(data.room);
+            updateRoomsList(data.rooms);
+        }
+    })
+
+    socket.on('rooms_showed', (data) => {
         updateRoomsList(data.rooms);
     });
 }
 
 function draw() {
+    if (currentRoom !== undefined) {
+        socket.emit('is_room_full', {
+            room: currentRoom
+        });
+        socket.on('is_room_full_response', (data) => {
+            isRoomFull = data.is_room_full;
+            if (isRoomFull)
+                roomFullP.innerHTML = "Room Full!";
+            else
+                roomFullP.innerHTML = "";
+        });
+    }
 
     //console.log(`sending data: ${data.y}`);
     socket.emit('data_ts', {
@@ -151,8 +205,8 @@ function draw() {
 
     background(0);
 
-    if (isAdmin){
-        ball.show();
+    ball.show();
+    if (!paused) {
         ball.update();
     }
 

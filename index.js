@@ -18,7 +18,8 @@ const rooms = [];
 function addRoom(name) {
     let room = {
         name: name,
-        id: rooms.length
+        id: rooms.length,
+        players: [],
     };
 
     rooms.push(room);
@@ -37,81 +38,130 @@ function roomExists(name) {
     return false;
 }
 
+function getRoom(name) {
+    for (let i = 0; i < rooms.length; ++i) {
+        const r = rooms[i];
+
+        if (r.name == name) {
+            return r;
+        }
+    }
+    return undefined;
+}
+
+function roomIsFull(room) {
+    return room.players.length >= 2;
+}
+
+function doesPlayerExist(sock, room, pname) {
+    for (const p of room.players) {
+        if (p.sock_id == sock.id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function sockJoinRoom(sock, room, pname) {
+    if (doesPlayerExist(sock, room, pname)) {
+        return false;
+    }
+    room.players.push({
+        sock_id: sock.id,
+        name: pname,
+    });
+
+    sock.join(room.name);
+    return true;
+}
+
 io.on('connection', socket => {
-    console.log(`new connection: ${socket.id}`);
-
+    console.log(`[connection] ${socket.id}`);
     // create room
-    socket.on('create_room', (data) => {
-        // console.log(data)
-        // console.log(`${data.name} \(${socket.id}\) has created the room "${data.room_name}"`);
-        socket.in(socket.id).socketsJoin(data.room_name);
-        let r = addRoom(data.room_name);
-        r.p1_sock_id = socket.id;
-
-
-        socket.emit('room_created', {
-            room: r,
-            rooms: rooms
-        });
-
-        console.log("--------------------------------------------------");
-        console.log(rooms);
-        console.log("--------------------------------------------------");
-        //console.log(io.in("room1"));
-    })
-
-    // join room
-    socket.on('join_room', (data) => {
+    socket.on('room_create', (data) => {
         if (roomExists(data.room_name)) {
-            // join to the room
-            socket.in(socket.id).socketsJoin(data.room_name);
-            // add to the rooms array only if there are less than 2 clients in it
-            if (rooms[data.room_name].length <= 1) {
-                rooms[data.room_name].push({
-                    id: socket.id,
-                    name: data.name,
-                    isAdmin: false
-                });
-                // console log who is joining which room
-                console.log(`${data.name} \(${socket.id}\) is joining "${data.room_name}"`);
-            } else {
-                console.log('there are already 2 clients in this room!');
-            }
-            // send response
-            socket.to(socket.id).emit('room_joined', {
-                id: socket.id,
-                name: data.name,
-                room_name: data.room_name
-            })
-        } else {
-            console.log('invalid room name!');
-            socket.emit('invalid_room', {
-                id: socket.id,
-                name: data.name,
-                room_name: data.room_name
+            socket.emit('room_created', {
+                room_exists: true,
+                room_name: data.room_name,
+            });
+            return;
+        }
+        console.log(`[room_create] ${data.name} \(${socket.id}\) has created the room "${data.room_name}"`);
+        let r = addRoom(data.room_name);
+        let success = sockJoinRoom(socket, r, data.name);
+ 
+        if (success) {
+            socket.emit('room_created', {
+                room: r,
+                rooms: rooms,
             });
         }
+        io.emit('rooms_update', {
+            rooms: rooms,
+        });
     })
 
+     // join room
+     socket.on('room_join', (data) => {
+         if (roomExists(data.room_name)) {
+             let room = getRoom(data.room_name);
+             if (room == undefined) {
+                 console.error(`Room ${data.room_name} doesn't exist!`);
+               return;
+             }
+             if (doesPlayerExist(socket, room, data.name)) {
+                 return;
+             }
+             if (sockJoinRoom(socket, room, data.name)) 
+                 console.log(`[room_join] ${data.name} \(${socket.id}\) is joining "${data.room_name}"`);
+
+             socket.emit('room_joined', {
+                 room: room,
+                 rooms: rooms,
+             })
+         } else {
+             socket.emit('room_joined', {
+                 room_name: data.room_name,
+                 room: null,
+             })
+         }
+        io.emit('rooms_update', {
+            rooms: rooms,
+        });
+
+     })
+ 
     // show rooms
-    socket.on('show_rooms', (data) => {
-        socket.emit('room_show', {
+    socket.on('rooms_show', (data) => {
+        socket.emit('rooms_showed', {
             rooms: rooms
         });
     })
 
-    socket.on('get_users', (data) => {
-        roomId = data.roomId;
-        console.log(`Getting Users for room ${roomId}`);
+    socket.on('is_room_full', (data) => {
+        const r = getRoom(data.room.name);
+        socket.emit('is_room_full_response', {
+            is_room_full: r.players.length >= 2,
+        });
     });
 
-    // recieve data and broadcast it to the other player
-    socket.on('data_ts', (data) => {
-        data.id = socket.id;
-        socket.broadcast.emit('data_tc', data);
+    socket.on('disconnecting', () => {
+        console.log(`[disconnecting] ${socket.id}`);
+        for (const room of rooms) {
+            for (let i = 0; i < room.players.length; ++i) {
+                const p = room.players[i];
+                if (p.sock_id === socket.id) {
+                    room.players.splice(i, 1);
+                    console.log(`Removing player with id: ${p.sock_id}`);
+                }
+            }
+        }
+        console.log(rooms);
 
-        //console.log(`recieving data: ${data.y} from: ${socket.id}`);
+        io.emit('rooms_update', {
+            rooms: rooms,
+        });
     });
-
-    // console.log(connections);
 });
+
+
